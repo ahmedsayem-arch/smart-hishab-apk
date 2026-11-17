@@ -43,16 +43,32 @@ Future<void> main() async {
   runApp(const SmartHishabApp());
 }
 
-Future<void> scheduleNoteReminder(
+Future<bool> scheduleNoteReminder(
     int id, String title, DateTime when) async {
-  if (!when.isAfter(DateTime.now())) return;
+  if (!when.isAfter(DateTime.now())) return false;
 
   try {
-    final androidImpl = notifications.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final androidImpl =
+        notifications.resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
 
-    // অ্যান্ড্রয়েড ১২+ এর জন্য Exact Alarm পারমিশন চাওয়া হচ্ছে
-    await androidImpl?.requestExactAlarmsPermission();
+    // Notification permission পরীক্ষা
+    final notificationAllowed =
+        await androidImpl?.requestNotificationsPermission();
+
+    if (notificationAllowed == false) {
+      debugPrint('Notification permission denied');
+      return false;
+    }
+
+    // Exact Alarm permission পরীক্ষা
+    final exactAllowed =
+        await androidImpl?.requestExactAlarmsPermission();
+
+    // Exact permission না থাকলে Inexact ব্যবহার
+    final scheduleMode = exactAllowed == true
+        ? AndroidScheduleMode.exactAllowWhileIdle
+        : AndroidScheduleMode.inexactAllowWhileIdle;
 
     await notifications.zonedSchedule(
       id,
@@ -68,78 +84,26 @@ Future<void> scheduleNoteReminder(
           priority: Priority.high,
           playSound: true,
           enableVibration: true,
+          sound: RawResourceAndroidNotificationSound(''),
         ),
-        iOS: DarwinNotificationDetails(),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentSound: true,
+        ),
       ),
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      androidScheduleMode: scheduleMode,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
     );
+
+    debugPrint('Reminder scheduled successfully: $id');
+    return true;
   } catch (e) {
-    debugPrint('Reminder schedule error: $e');
+    debugPrint('Reminder error: $e');
+    return false;
   }
 }
-
-class DB {
-  static Database? _db;
-
-  static Future<Database> get instance async {
-    if (_db != null) return _db!;
-
-    final root = await getDatabasesPath();
-
-    _db = await openDatabase(
-      p.join(root, 'smart_hishab.db'),
-      version: 3,
-      onCreate: (db, version) async {
-        await db.execute(
-          'CREATE TABLE expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, category TEXT NOT NULL, item TEXT NOT NULL, amount REAL NOT NULL, date TEXT NOT NULL, ts INTEGER NOT NULL)',
-        );
-
-        await db.execute(
-          'CREATE TABLE notes (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, amount REAL NOT NULL, createdAt TEXT NOT NULL, reminderAt INTEGER)',
-        );
-
-        await db.execute(
-          'CREATE TABLE settings (k TEXT PRIMARY KEY, v TEXT NOT NULL)',
-        );
-
-        await indexes(db);
-      },
-      onUpgrade: (db, oldVersion, newVersion) async {
-        if (oldVersion < 2) {
-          await db.execute(
-            'CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, amount REAL NOT NULL, createdAt TEXT NOT NULL, reminderAt INTEGER)',
-          );
-
-          final tables = await db.rawQuery(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='reminders'",
-          );
-
-          if (tables.isNotEmpty) {
-            await db.execute(
-              "INSERT OR IGNORE INTO notes (id,title,amount,createdAt) SELECT id,title,amount,remindAt FROM reminders",
-            );
-          }
-
-          await indexes(db);
-        }
-
-        if (oldVersion < 3) {
-          final cols = await db.rawQuery('PRAGMA table_info(notes)');
-
-          if (!cols.any((c) => c['name'] == 'reminderAt')) {
-            await db.execute(
-              'ALTER TABLE notes ADD COLUMN reminderAt INTEGER',
-            );
-          }
-        }
-      },
-    );
-
-    return _db!;
-  }
-
+ 
   static Future<void> indexes(Database db) async {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date)',
@@ -699,10 +663,28 @@ class _HomePageState extends State<HomePage> {
                             : tr('নোট ও রিমাইন্ডার সেভ হয়েছে', 'Note and reminder saved'),
                       );
 
-                      // ৩. এবার ব্যাকগ্রাউন্ডে নিরাপদে রিমাইন্ডার শিডিউল করুন
-                      if (reminder != null) {
-                        await scheduleNoteReminder(insertedId, t, reminder!);
-                      }
+                      // রিমাইন্ডার Schedule
+if (reminder != null) {
+  final success = await scheduleNoteReminder(
+    insertedId,
+    t,
+    reminder!,
+  );
+
+  if (mounted) {
+    toast(
+      success
+          ? tr(
+              'রিমাইন্ডার সেট হয়েছে',
+              'Reminder scheduled successfully',
+            )
+          : tr(
+              'রিমাইন্ডার সেট হয়নি। Permission পরীক্ষা করুন।',
+              'Reminder failed. Check permissions.',
+            ),
+    );
+  }
+}
                     },
      
                     child: Text(tr('সেভ করুন', 'Save')),
