@@ -345,10 +345,8 @@ class _HomePageState extends State<HomePage> {
   String _activeCat = 'all';
   String _searchQuery = '';
   final _searchCtrl = TextEditingController();
-
   List> _expenses = [];
   List> _reminders = [];
-
   late int _calYear;
   late int _calMonth;
   late String _selectedCalDate;
