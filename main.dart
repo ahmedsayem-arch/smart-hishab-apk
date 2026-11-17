@@ -666,7 +666,8 @@ class _HomePageState extends State<HomePage> {
                         return;
                       }
 
-                      final id = await (await DB.instance).insert(
+                      // এখানে ডাটাবেসে নোট ইনসার্ট করা হচ্ছে এবং সঠিক আইডি নেওয়া হচ্ছে
+                      final int insertedId = await (await DB.instance).insert(
                         'notes',
                         {
                           'title': t,
@@ -676,8 +677,9 @@ class _HomePageState extends State<HomePage> {
                         },
                       );
 
+                      // রিমাইন্ডার দেওয়া থাকলে তা শিডিউল হবে
                       if (reminder != null) {
-                        await scheduleNoteReminder(id, t, reminder!);
+                        await scheduleNoteReminder(insertedId, t, reminder!);
                       }
 
                       if (sheet.mounted) Navigator.pop(sheet);
