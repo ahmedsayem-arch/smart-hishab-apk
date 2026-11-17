@@ -1332,7 +1332,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget notesPage() {
+    Widget notesPage() {
     if (notes.isEmpty) {
       return Center(
         child: Text(tr('এখনো কোনো নোট নেই', 'No notes yet')),
@@ -1343,6 +1343,7 @@ class _HomePageState extends State<HomePage> {
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
       children: notes.map((n) {
         final a = (n['amount'] as num).toDouble();
+        final noteId = n['id'] as int;
 
         return Card(
           elevation: 0,
@@ -1368,13 +1369,20 @@ class _HomePageState extends State<HomePage> {
                 Icons.delete_outline,
                 color: Colors.redAccent,
               ),
-              onPressed: () => confirmDelete(
-                n['title'] as String,
-                () async {
-                  await notifications.cancel(n['id'] as int);
-                  await deleteRow('notes', n['id'] as int);
-                },
-              ),
+              onPressed: () {
+                confirmDelete(
+                  n['title'] as String,
+                  () async {
+                    try {
+                      // প্রথমে নোটিফিকেশন ক্যানসেল করুন
+                      await notifications.cancel(noteId);
+                    } catch (_) {}
+                    
+                    // এরপর ডাটাবেস থেকে ডিলিট করে রেকর্ড রিলোড করুন
+                    await deleteRow('notes', noteId);
+                  },
+                );
+              },
             ),
           ),
         );
