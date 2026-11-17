@@ -678,7 +678,7 @@ class _HomePageState extends State<HomePage> {
                         return;
                       }
 
-                                       // ১. ডাটাবেসে নোট ইনসার্ট
+                                            // ১. ডাটাবেসে নোট ইনসার্ট
                       final int insertedId = await (await DB.instance).insert(
                         'notes',
                         {
@@ -689,7 +689,7 @@ class _HomePageState extends State<HomePage> {
                         },
                       );
 
-                      // ২. আগে পপ-আপ বন্ধ করে লিস্ট রিফ্রেশ করুন (যাতে ইউজার আটকে না থাকে)
+                      // ২. আগে পপ-আপ বন্ধ করে লিস্ট রিফ্রেশ করুন
                       if (sheet.mounted) Navigator.pop(sheet);
                       await loadRecords();
 
@@ -703,18 +703,8 @@ class _HomePageState extends State<HomePage> {
                       if (reminder != null) {
                         await scheduleNoteReminder(insertedId, t, reminder!);
                       }
-
-
-                      if (sheet.mounted) Navigator.pop(sheet);
-
-                      await loadRecords();
-
-                      toast(
-                        reminder == null
-                            ? tr('নোট সেভ হয়েছে', 'Note saved')
-                            : tr('নোট ও রিমাইন্ডার সেভ হয়েছে', 'Note and reminder saved'),
-                      );
                     },
+     
                     child: Text(tr('সেভ করুন', 'Save')),
                   ),
                 ),
