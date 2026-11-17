@@ -47,25 +47,37 @@ Future<void> scheduleNoteReminder(
     int id, String title, DateTime when) async {
   if (!when.isAfter(DateTime.now())) return;
 
-  await notifications.zonedSchedule(
-    id,
-    'Smart Hishab',
-    title,
-    tz.TZDateTime.from(when, tz.local),
-    const NotificationDetails(
-      android: AndroidNotificationDetails(
-        'smart_hishab_reminders',
-        'Smart Hishab Reminders',
-        channelDescription: 'Expense and note reminders',
-        importance: Importance.high,
-        priority: Priority.high,
+  try {
+    final androidImpl = notifications.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+
+    // অ্যান্ড্রয়েড ১২+ এর জন্য Exact Alarm পারমিশন চাওয়া হচ্ছে
+    await androidImpl?.requestExactAlarmsPermission();
+
+    await notifications.zonedSchedule(
+      id,
+      'Smart Hishab',
+      title,
+      tz.TZDateTime.from(when, tz.local),
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'smart_hishab_reminders',
+          'Smart Hishab Reminders',
+          channelDescription: 'Expense and note reminders',
+          importance: Importance.max,
+          priority: Priority.high,
+          playSound: true,
+          enableVibration: true,
+        ),
+        iOS: DarwinNotificationDetails(),
       ),
-      iOS: DarwinNotificationDetails(),
-    ),
-    androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-    uiLocalNotificationDateInterpretation:
-        UILocalNotificationDateInterpretation.absoluteTime,
-  );
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+    );
+  } catch (e) {
+    debugPrint('Reminder schedule error: $e');
+  }
 }
 
 class DB {
@@ -666,7 +678,7 @@ class _HomePageState extends State<HomePage> {
                         return;
                       }
 
-                      // এখানে ডাটাবেসে নোট ইনসার্ট করা হচ্ছে এবং সঠিক আইডি নেওয়া হচ্ছে
+                                       // ১. ডাটাবেসে নোট ইনসার্ট
                       final int insertedId = await (await DB.instance).insert(
                         'notes',
                         {
@@ -677,10 +689,21 @@ class _HomePageState extends State<HomePage> {
                         },
                       );
 
-                      // রিমাইন্ডার দেওয়া থাকলে তা শিডিউল হবে
+                      // ২. আগে পপ-আপ বন্ধ করে লিস্ট রিফ্রেশ করুন (যাতে ইউজার আটকে না থাকে)
+                      if (sheet.mounted) Navigator.pop(sheet);
+                      await loadRecords();
+
+                      toast(
+                        reminder == null
+                            ? tr('নোট সেভ হয়েছে', 'Note saved')
+                            : tr('নোট ও রিমাইন্ডার সেভ হয়েছে', 'Note and reminder saved'),
+                      );
+
+                      // ৩. এবার ব্যাকগ্রাউন্ডে নিরাপদে রিমাইন্ডার শিডিউল করুন
                       if (reminder != null) {
                         await scheduleNoteReminder(insertedId, t, reminder!);
                       }
+
 
                       if (sheet.mounted) Navigator.pop(sheet);
 
