@@ -57,6 +57,7 @@ Future<bool> scheduleNoteReminder(int id, String title, DateTime when) async {
           : AndroidScheduleMode.inexactAllowWhileIdle,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
+      // payload প্যারামিটারটি এখান থেকে রিমুভ করা হয়েছে যাতে টাইপ মিসম্যাচ বা ক্র্যাশ না করে
     );
 
     return true;
@@ -64,7 +65,6 @@ Future<bool> scheduleNoteReminder(int id, String title, DateTime when) async {
     return false;
   }
 }
-
 
 class DB {
   static Database? _db;
