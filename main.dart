@@ -1,3 +1,4 @@
+
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:sqflite/sqflite.dart';
@@ -36,40 +37,26 @@ Future<void> main() async {
           'smart_hishab_reminders',
           'Smart Hishab Reminders',
           description: 'Expense and note reminders',
-          importance: Importance.high,
+          importance: Importance.max,
+          playSound: true,
         ),
       );
 
   runApp(const SmartHishabApp());
 }
 
+// ======================================================
+// REMINDER FUNCTION
+// ======================================================
+
 Future<bool> scheduleNoteReminder(
     int id, String title, DateTime when) async {
-  if (!when.isAfter(DateTime.now())) return false;
+  if (!when.isAfter(DateTime.now())) {
+    debugPrint('Reminder time is in the past');
+    return false;
+  }
 
   try {
-    final androidImpl =
-        notifications.resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
-
-    // Notification permission পরীক্ষা
-    final notificationAllowed =
-        await androidImpl?.requestNotificationsPermission();
-
-    if (notificationAllowed == false) {
-      debugPrint('Notification permission denied');
-      return false;
-    }
-
-    // Exact Alarm permission পরীক্ষা
-    final exactAllowed =
-        await androidImpl?.requestExactAlarmsPermission();
-
-    // Exact permission না থাকলে Inexact ব্যবহার
-    final scheduleMode = exactAllowed == true
-        ? AndroidScheduleMode.exactAllowWhileIdle
-        : AndroidScheduleMode.inexactAllowWhileIdle;
-
     await notifications.zonedSchedule(
       id,
       'Smart Hishab',
@@ -84,26 +71,86 @@ Future<bool> scheduleNoteReminder(
           priority: Priority.high,
           playSound: true,
           enableVibration: true,
-          sound: RawResourceAndroidNotificationSound(''),
         ),
-        iOS: DarwinNotificationDetails(
-          presentAlert: true,
-          presentSound: true,
-        ),
+        iOS: DarwinNotificationDetails(),
       ),
-      androidScheduleMode: scheduleMode,
+      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
     );
 
-    debugPrint('Reminder scheduled successfully: $id');
+    debugPrint('Reminder scheduled successfully');
     return true;
   } catch (e) {
-    debugPrint('Reminder error: $e');
+    debugPrint('Reminder schedule error: $e');
     return false;
   }
 }
- 
+
+// ======================================================
+// DATABASE
+// ======================================================
+
+class DB {
+  static Database? _db;
+
+  static Future<Database> get instance async {
+    if (_db != null) return _db!;
+
+    final root = await getDatabasesPath();
+
+    _db = await openDatabase(
+      p.join(root, 'smart_hishab.db'),
+      version: 3,
+      onCreate: (db, version) async {
+        await db.execute(
+          'CREATE TABLE expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, category TEXT NOT NULL, item TEXT NOT NULL, amount REAL NOT NULL, date TEXT NOT NULL, ts INTEGER NOT NULL)',
+        );
+
+        await db.execute(
+          'CREATE TABLE notes (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, amount REAL NOT NULL, createdAt TEXT NOT NULL, reminderAt INTEGER)',
+        );
+
+        await db.execute(
+          'CREATE TABLE settings (k TEXT PRIMARY KEY, v TEXT NOT NULL)',
+        );
+
+        await indexes(db);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(
+            'CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, amount REAL NOT NULL, createdAt TEXT NOT NULL, reminderAt INTEGER)',
+          );
+
+          final tables = await db.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='reminders'",
+          );
+
+          if (tables.isNotEmpty) {
+            await db.execute(
+              "INSERT OR IGNORE INTO notes (id,title,amount,createdAt) SELECT id,title,amount,remindAt FROM reminders",
+            );
+          }
+
+          await indexes(db);
+        }
+
+        if (oldVersion < 3) {
+          final cols = await db.rawQuery('PRAGMA table_info(notes)');
+
+          if (!cols.any((c) => c['name'] == 'reminderAt')) {
+            await db.execute(
+              'ALTER TABLE notes ADD COLUMN reminderAt INTEGER',
+            );
+          }
+        }
+      },
+    );
+
+    return _db!;
+  }
+
   static Future<void> indexes(Database db) async {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date)',
@@ -140,39 +187,91 @@ Future<bool> scheduleNoteReminder(
   }
 }
 
+// ======================================================
+// CATEGORIES
+// ======================================================
+
 class Category {
   final String id, bn, en;
   final IconData icon;
   final Color color;
 
-  const Category(this.id, this.bn, this.en, this.icon, this.color);
+  const Category(
+    this.id,
+    this.bn,
+    this.en,
+    this.icon,
+    this.color,
+  );
 }
 
 const cats = <Category>[
-  Category('transport', 'যাতায়াত', 'Transport',
-      Icons.directions_bus_rounded, Color(0xFF6366F1)),
-  Category('food', 'খাবার', 'Food',
-      Icons.restaurant_rounded, Color(0xFFF59E0B)),
-  Category('groceries', 'বাজার', 'Groceries',
-      Icons.shopping_bag_rounded, Color(0xFF10B981)),
-  Category('other', 'অন্যান্য', 'Others',
-      Icons.receipt_long_rounded, Color(0xFFF43F5E)),
+  Category(
+    'transport',
+    'যাতায়াত',
+    'Transport',
+    Icons.directions_bus_rounded,
+    Color(0xFF6366F1),
+  ),
+  Category(
+    'food',
+    'খাবার',
+    'Food',
+    Icons.restaurant_rounded,
+    Color(0xFFF59E0B),
+  ),
+  Category(
+    'groceries',
+    'বাজার',
+    'Groceries',
+    Icons.shopping_bag_rounded,
+    Color(0xFF10B981),
+  ),
+  Category(
+    'other',
+    'অন্যান্য',
+    'Others',
+    Icons.receipt_long_rounded,
+    Color(0xFFF43F5E),
+  ),
 ];
 
 Category catOf(String id) =>
     cats.firstWhere((c) => c.id == id, orElse: () => cats.last);
 
 const bnMonths = [
-  'জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল',
-  'মে', 'জুন', 'জুলাই', 'আগস্ট',
-  'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'
+  'জানুয়ারি',
+  'ফেব্রুয়ারি',
+  'মার্চ',
+  'এপ্রিল',
+  'মে',
+  'জুন',
+  'জুলাই',
+  'আগস্ট',
+  'সেপ্টেম্বর',
+  'অক্টোবর',
+  'নভেম্বর',
+  'ডিসেম্বর'
 ];
 
 const enMonths = [
-  'January', 'February', 'March', 'April',
-  'May', 'June', 'July', 'August',
-  'September', 'October', 'November', 'December'
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December'
 ];
+
+// ======================================================
+// MAIN APP
+// ======================================================
 
 class SmartHishabApp extends StatefulWidget {
   const SmartHishabApp({super.key});
@@ -268,6 +367,11 @@ class _SmartHishabAppState extends State<SmartHishabApp> {
     );
   }
 }
+
+// ======================================================
+// DONUT CHART
+// ======================================================
+
 class DonutPainter extends CustomPainter {
   final Map<String, double> values;
   final double total;
@@ -311,10 +415,15 @@ class DonutPainter extends CustomPainter {
   bool shouldRepaint(covariant DonutPainter oldDelegate) => true;
 }
 
+// ======================================================
+// HOME PAGE
+// ======================================================
+
 class HomePage extends StatefulWidget {
   final String lang, name;
   final bool dark;
   final double budget;
+
   final ValueChanged<String> onLang, onName;
   final ValueChanged<bool> onDark;
   final ValueChanged<double> onBudget;
@@ -336,14 +445,20 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  int tab = 0, year = DateTime.now().year, month = DateTime.now().month;
+  int tab = 0;
+  int year = DateTime.now().year;
+  int month = DateTime.now().month;
 
-  String selectedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
-  String filter = 'all', search = '';
+  String selectedDate =
+      DateFormat('yyyy-MM-dd').format(DateTime.now());
+
+  String filter = 'all';
+  String search = '';
 
   final searchCtrl = TextEditingController();
 
-  List<Map<String, dynamic>> expenses = [], notes = [];
+  List<Map<String, dynamic>> expenses = [];
+  List<Map<String, dynamic>> notes = [];
 
   bool get bn => widget.lang == 'bn';
 
@@ -398,6 +513,10 @@ class _HomePageState extends State<HomePage> {
   String monthTitle() =>
       '${(bn ? bnMonths : enMonths)[month - 1]} $year';
 
+  // ====================================================
+  // ADD EXPENSE
+  // ====================================================
+
   Future<void> addExpense() async {
     String category = 'transport';
 
@@ -428,9 +547,7 @@ class _HomePageState extends State<HomePage> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-
                 const SizedBox(height: 14),
-
                 Wrap(
                   spacing: 7,
                   runSpacing: 7,
@@ -439,15 +556,12 @@ class _HomePageState extends State<HomePage> {
                       avatar: Icon(c.icon, color: c.color, size: 17),
                       label: Text(bn ? c.bn : c.en),
                       selected: category == c.id,
-                      onSelected: (_) {
-                        setSheet(() => category = c.id);
-                      },
+                      onSelected: (_) =>
+                          setSheet(() => category = c.id),
                     );
                   }).toList(),
                 ),
-
                 const SizedBox(height: 12),
-
                 TextField(
                   controller: item,
                   decoration: InputDecoration(
@@ -455,9 +569,7 @@ class _HomePageState extends State<HomePage> {
                     border: const OutlineInputBorder(),
                   ),
                 ),
-
                 const SizedBox(height: 12),
-
                 TextField(
                   controller: amount,
                   keyboardType:
@@ -467,9 +579,7 @@ class _HomePageState extends State<HomePage> {
                     border: const OutlineInputBorder(),
                   ),
                 ),
-
                 const SizedBox(height: 16),
-
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton(
@@ -503,9 +613,7 @@ class _HomePageState extends State<HomePage> {
                         },
                       );
 
-                      if (sheet.mounted) {
-                        Navigator.pop(sheet);
-                      }
+                      if (sheet.mounted) Navigator.pop(sheet);
 
                       await loadRecords();
 
@@ -524,9 +632,15 @@ class _HomePageState extends State<HomePage> {
     item.dispose();
     amount.dispose();
   }
-    Future<void> addNote() async {
+
+  // ====================================================
+  // ADD NOTE AND REMINDER
+  // ====================================================
+
+  Future<void> addNote() async {
     final title = TextEditingController();
     final amount = TextEditingController();
+
     DateTime? reminder;
 
     await showModalBottomSheet(
@@ -536,7 +650,10 @@ class _HomePageState extends State<HomePage> {
       builder: (sheet) => StatefulBuilder(
         builder: (ctx, setSheet) => Padding(
           padding: EdgeInsets.fromLTRB(
-            18, 8, 18, MediaQuery.of(ctx).viewInsets.bottom + 20,
+            18,
+            8,
+            18,
+            MediaQuery.of(ctx).viewInsets.bottom + 20,
           ),
           child: SingleChildScrollView(
             child: Column(
@@ -546,7 +663,8 @@ class _HomePageState extends State<HomePage> {
                 Text(
                   tr('নতুন নোট / রিমাইন্ডার', 'New Note / Reminder'),
                   style: const TextStyle(
-                    fontSize: 19, fontWeight: FontWeight.bold,
+                    fontSize: 19,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
                 const SizedBox(height: 14),
@@ -560,7 +678,8 @@ class _HomePageState extends State<HomePage> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: amount,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
                   decoration: InputDecoration(
                     labelText: tr('টাকা (ঐচ্ছিক)', 'Amount (optional)'),
                     border: const OutlineInputBorder(),
@@ -570,11 +689,17 @@ class _HomePageState extends State<HomePage> {
                 Card(
                   elevation: 0,
                   child: ListTile(
-                    leading: const Icon(Icons.notifications_active_outlined),
+                    leading: const Icon(
+                      Icons.notifications_active_outlined,
+                    ),
                     title: Text(
                       reminder == null
-                          ? tr('রিমাইন্ডারের সময় দিন', 'Set reminder time')
-                          : DateFormat('dd MMM yyyy, hh:mm a').format(reminder!),
+                          ? tr(
+                              'রিমাইন্ডারের সময় দিন',
+                              'Set reminder time',
+                            )
+                          : DateFormat('dd MMM yyyy, hh:mm a')
+                              .format(reminder!),
                     ),
                     subtitle: Text(
                       tr(
@@ -586,14 +711,17 @@ class _HomePageState extends State<HomePage> {
                         ? const Icon(Icons.chevron_right)
                         : IconButton(
                             icon: const Icon(Icons.close),
-                            onPressed: () => setSheet(() => reminder = null),
+                            onPressed: () =>
+                                setSheet(() => reminder = null),
                           ),
                     onTap: () async {
                       final pickedDate = await showDatePicker(
                         context: ctx,
-                        initialDate: DateTime.now().add(const Duration(days: 1)),
+                        initialDate:
+                            DateTime.now().add(const Duration(days: 1)),
                         firstDate: DateTime.now(),
-                        lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
+                        lastDate:
+                            DateTime.now().add(const Duration(days: 365 * 5)),
                       );
 
                       if (pickedDate == null) return;
@@ -618,7 +746,10 @@ class _HomePageState extends State<HomePage> {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
-                              tr('ভবিষ্যতের সময় নির্বাচন করুন', 'Choose a future time'),
+                              tr(
+                                'ভবিষ্যতের সময় নির্বাচন করুন',
+                                'Choose a future time',
+                              ),
                             ),
                           ),
                         );
@@ -635,58 +766,62 @@ class _HomePageState extends State<HomePage> {
                   child: FilledButton(
                     onPressed: () async {
                       final t = title.text.trim();
-                      final a = double.tryParse(amount.text.trim()) ?? 0;
+                      final a =
+                          double.tryParse(amount.text.trim()) ?? 0;
 
                       if (t.isEmpty || a < 0) {
-                        toast(tr('নোটের বিবরণ লিখুন', 'Enter note details'));
+                        toast(
+                          tr(
+                            'নোটের বিবরণ লিখুন',
+                            'Enter note details',
+                          ),
+                        );
                         return;
                       }
 
-                                            // ১. ডাটাবেসে নোট ইনসার্ট
-                      final int insertedId = await (await DB.instance).insert(
+                      final id = await (await DB.instance).insert(
                         'notes',
                         {
                           'title': t,
                           'amount': a,
                           'createdAt': DateTime.now().toIso8601String(),
-                          'reminderAt': reminder?.millisecondsSinceEpoch,
+                          'reminderAt':
+                              reminder?.millisecondsSinceEpoch,
                         },
                       );
 
-                      // ২. আগে পপ-আপ বন্ধ করে লিস্ট রিফ্রেশ করুন
+                      bool reminderSet = true;
+
+                      if (reminder != null) {
+                        reminderSet = await scheduleNoteReminder(
+                          id,
+                          t,
+                          reminder!,
+                        );
+                      }
+
                       if (sheet.mounted) Navigator.pop(sheet);
+
                       await loadRecords();
 
-                      toast(
-                        reminder == null
-                            ? tr('নোট সেভ হয়েছে', 'Note saved')
-                            : tr('নোট ও রিমাইন্ডার সেভ হয়েছে', 'Note and reminder saved'),
-                      );
-
-                      // রিমাইন্ডার Schedule
-if (reminder != null) {
-  final success = await scheduleNoteReminder(
-    insertedId,
-    t,
-    reminder!,
-  );
-
-  if (mounted) {
-    toast(
-      success
-          ? tr(
-              'রিমাইন্ডার সেট হয়েছে',
-              'Reminder scheduled successfully',
-            )
-          : tr(
-              'রিমাইন্ডার সেট হয়নি। Permission পরীক্ষা করুন।',
-              'Reminder failed. Check permissions.',
-            ),
-    );
-  }
-}
+                      if (reminder == null) {
+                        toast(tr('নোট সেভ হয়েছে', 'Note saved'));
+                      } else if (reminderSet) {
+                        toast(
+                          tr(
+                            'নোট ও রিমাইন্ডার সেভ হয়েছে',
+                            'Note and reminder saved',
+                          ),
+                        );
+                      } else {
+                        toast(
+                          tr(
+                            'নোট সেভ হয়েছে, কিন্তু রিমাইন্ডার সেট হয়নি',
+                            'Note saved, but reminder could not be scheduled',
+                          ),
+                        );
+                      }
                     },
-     
                     child: Text(tr('সেভ করুন', 'Save')),
                   ),
                 ),
@@ -701,9 +836,15 @@ if (reminder != null) {
     amount.dispose();
   }
 
+  // ====================================================
+  // MONTHLY BUDGET
+  // ====================================================
+
   Future<void> setBudgetDialog() async {
     final c = TextEditingController(
-      text: widget.budget > 0 ? widget.budget.toStringAsFixed(0) : '',
+      text: widget.budget > 0
+          ? widget.budget.toStringAsFixed(0)
+          : '',
     );
 
     await showDialog(
@@ -712,7 +853,8 @@ if (reminder != null) {
         title: Text(tr('মাসিক বাজেট', 'Monthly Budget')),
         content: TextField(
           controller: c,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          keyboardType:
+              const TextInputType.numberWithOptions(decimal: true),
           decoration: const InputDecoration(
             labelText: '৳',
             border: OutlineInputBorder(),
@@ -745,6 +887,10 @@ if (reminder != null) {
     c.dispose();
   }
 
+  // ====================================================
+  // DELETE FUNCTIONS
+  // ====================================================
+
   Future<void> deleteRow(String table, int id) async {
     await (await DB.instance).delete(
       table,
@@ -756,7 +902,10 @@ if (reminder != null) {
     toast(tr('মুছে ফেলা হয়েছে', 'Deleted'));
   }
 
-  Future<void> confirmDelete(String title, VoidCallback action) async {
+  Future<void> confirmDelete(
+    String title,
+    VoidCallback action,
+  ) async {
     final yes = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -778,12 +927,17 @@ if (reminder != null) {
     if (yes == true) action();
   }
 
+  // ====================================================
+  // EXPENSE TILE
+  // ====================================================
+
   Widget expenseTile(Map<String, dynamic> e) {
     final c = catOf(e['category'] as String);
     final ts = (e['ts'] as int?) ?? 0;
 
     final time = ts > 0
-        ? DateFormat('hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(ts))
+        ? DateFormat('hh:mm a')
+            .format(DateTime.fromMillisecondsSinceEpoch(ts))
         : '';
 
     return Card(
@@ -807,7 +961,10 @@ if (reminder != null) {
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             IconButton(
-              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+              icon: const Icon(
+                Icons.delete_outline,
+                color: Colors.redAccent,
+              ),
               onPressed: () => confirmDelete(
                 e['item'] as String,
                 () => deleteRow('expenses', e['id'] as int),
@@ -818,6 +975,10 @@ if (reminder != null) {
       ),
     );
   }
+
+  // ====================================================
+  // SUMMARY BOX
+  // ====================================================
 
   Widget summaryBox(String label, String value) {
     return Expanded(
@@ -830,7 +991,13 @@ if (reminder != null) {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 11,
+              ),
+            ),
             const SizedBox(height: 4),
             Text(
               value,
@@ -845,19 +1012,29 @@ if (reminder != null) {
       ),
     );
   }
+
+  // ====================================================
+  // EXPENSE PAGE
+  // ====================================================
+
   Widget expensePage() {
     final now = DateTime.now();
     final today = DateFormat('yyyy-MM-dd').format(now);
     final prefix = today.substring(0, 7);
 
-    double total = 0, todayTotal = 0;
-    final sums = <String, double>{for (final c in cats) c.id: 0};
+    double total = 0;
+    double todayTotal = 0;
+
+    final sums = <String, double>{
+      for (final c in cats) c.id: 0,
+    };
 
     for (final e in expenses) {
       final d = e['date'] as String;
 
       if (d.startsWith(prefix)) {
         final a = (e['amount'] as num).toDouble();
+
         total += a;
 
         if (d == today) todayTotal += a;
@@ -883,7 +1060,9 @@ if (reminder != null) {
     }).toList();
 
     final ranked = cats.toList()
-      ..sort((a, b) => (sums[b.id] ?? 0).compareTo(sums[a.id] ?? 0));
+      ..sort(
+        (a, b) => (sums[b.id] ?? 0).compareTo(sums[a.id] ?? 0),
+      );
 
     final progress = widget.budget > 0
         ? (total / widget.budget).clamp(0.0, 1.0)
@@ -946,7 +1125,10 @@ if (reminder != null) {
                           Text(
                             widget.budget > 0
                                 ? '${tr('বাজেট', 'Budget')}: ৳${widget.budget.toStringAsFixed(0)}'
-                                : tr('বাজেট সেট করতে ট্যাপ করুন', 'Tap to set budget'),
+                                : tr(
+                                    'বাজেট সেট করতে ট্যাপ করুন',
+                                    'Tap to set budget',
+                                  ),
                             style: const TextStyle(color: Colors.white),
                           ),
                           if (widget.budget > 0)
@@ -967,7 +1149,8 @@ if (reminder != null) {
                             value: progress,
                             minHeight: 7,
                             backgroundColor: Colors.white24,
-                            valueColor: const AlwaysStoppedAnimation(Colors.white),
+                            valueColor:
+                                const AlwaysStoppedAnimation(Colors.white),
                           ),
                         ),
                         if (total > widget.budget)
@@ -1006,7 +1189,6 @@ if (reminder != null) {
             ],
           ),
         ),
-
         if (total > 0)
           Card(
             elevation: 0,
@@ -1017,7 +1199,10 @@ if (reminder != null) {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    tr('ক্যাটাগরি অনুযায়ী খরচ', 'Spending by Category'),
+                    tr(
+                      'ক্যাটাগরি অনুযায়ী খরচ',
+                      'Spending by Category',
+                    ),
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 12),
@@ -1095,9 +1280,7 @@ if (reminder != null) {
               ),
             ),
           ),
-
         const SizedBox(height: 13),
-
         TextField(
           controller: searchCtrl,
           onChanged: (v) => setState(() => search = v),
@@ -1111,9 +1294,7 @@ if (reminder != null) {
             ),
           ),
         ),
-
         const SizedBox(height: 9),
-
         SizedBox(
           height: 42,
           child: ListView(
@@ -1141,14 +1322,14 @@ if (reminder != null) {
             ],
           ),
         ),
-
         const SizedBox(height: 8),
-
         if (filtered.isEmpty)
           Padding(
             padding: const EdgeInsets.all(30),
             child: Center(
-              child: Text(tr('কোনো খরচ পাওয়া যায়নি', 'No expenses found')),
+              child: Text(
+                tr('কোনো খরচ পাওয়া যায়নি', 'No expenses found'),
+              ),
             ),
           )
         else
@@ -1157,8 +1338,13 @@ if (reminder != null) {
     );
   }
 
+  // ====================================================
+  // CALENDAR PAGE
+  // ====================================================
+
   Widget calendarPage() {
     final prefix = '$year-${month.toString().padLeft(2, '0')}';
+
     final first = DateTime(year, month, 1);
     final offset = first.weekday % 7;
     final days = DateTime(year, month + 1, 0).day;
@@ -1169,7 +1355,8 @@ if (reminder != null) {
       final d = e['date'] as String;
 
       if (d.startsWith(prefix)) {
-        totals[d] = (totals[d] ?? 0) + (e['amount'] as num).toDouble();
+        totals[d] =
+            (totals[d] ?? 0) + (e['amount'] as num).toDouble();
       }
     }
 
@@ -1195,10 +1382,12 @@ if (reminder != null) {
                     IconButton(
                       onPressed: () => setState(() {
                         month--;
+
                         if (month < 1) {
                           month = 12;
                           year--;
                         }
+
                         selectedDate =
                             '$year-${month.toString().padLeft(2, '0')}-01';
                       }),
@@ -1214,10 +1403,12 @@ if (reminder != null) {
                     IconButton(
                       onPressed: () => setState(() {
                         month++;
+
                         if (month > 12) {
                           month = 1;
                           year++;
                         }
+
                         selectedDate =
                             '$year-${month.toString().padLeft(2, '0')}-01';
                       }),
@@ -1225,7 +1416,6 @@ if (reminder != null) {
                     ),
                   ],
                 ),
-
                 Row(
                   children: weekdays
                       .map(
@@ -1243,9 +1433,7 @@ if (reminder != null) {
                       )
                       .toList(),
                 ),
-
                 const SizedBox(height: 8),
-
                 GridView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
@@ -1261,7 +1449,9 @@ if (reminder != null) {
                     if (i < offset) return const SizedBox.shrink();
 
                     final day = i - offset + 1;
-                    final d = '$prefix-${day.toString().padLeft(2, '0')}';
+                    final d =
+                        '$prefix-${day.toString().padLeft(2, '0')}';
+
                     final amount = totals[d] ?? 0;
                     final selectedDay = d == selectedDate;
 
@@ -1273,7 +1463,10 @@ if (reminder != null) {
                           color: selectedDay
                               ? Theme.of(context).colorScheme.primary
                               : amount > 0
-                                  ? Theme.of(context).colorScheme.primary.withOpacity(.13)
+                                  ? Theme.of(context)
+                                      .colorScheme
+                                      .primary
+                                      .withOpacity(.13)
                                   : null,
                           borderRadius: BorderRadius.circular(9),
                         ),
@@ -1295,7 +1488,9 @@ if (reminder != null) {
                                   shape: BoxShape.circle,
                                   color: selectedDay
                                       ? Colors.white
-                                      : Theme.of(context).colorScheme.primary,
+                                      : Theme.of(context)
+                                          .colorScheme
+                                          .primary,
                                 ),
                               ),
                           ],
@@ -1308,19 +1503,25 @@ if (reminder != null) {
             ),
           ),
         ),
-
         const SizedBox(height: 12),
         Text(
           selectedDate,
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 15,
+          ),
         ),
         const SizedBox(height: 8),
-
         if (selected.isEmpty)
           Center(
             child: Padding(
               padding: const EdgeInsets.all(25),
-              child: Text(tr('এই দিনে কোনো খরচ নেই', 'No expenses on this date')),
+              child: Text(
+                tr(
+                  'এই দিনে কোনো খরচ নেই',
+                  'No expenses on this date',
+                ),
+              ),
             ),
           )
         else
@@ -1329,7 +1530,11 @@ if (reminder != null) {
     );
   }
 
-    Widget notesPage() {
+  // ====================================================
+  // NOTES PAGE
+  // ====================================================
+
+  Widget notesPage() {
     if (notes.isEmpty) {
       return Center(
         child: Text(tr('এখনো কোনো নোট নেই', 'No notes yet')),
@@ -1340,7 +1545,6 @@ if (reminder != null) {
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
       children: notes.map((n) {
         final a = (n['amount'] as num).toDouble();
-        final noteId = n['id'] as int;
 
         return Card(
           elevation: 0,
@@ -1353,39 +1557,38 @@ if (reminder != null) {
               n['title'] as String,
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
-            subtitle: Text([
-              if (a > 0)
-                '৳${a.toStringAsFixed(0)}'
-              else
-                tr('সাধারণ নোট', 'General note'),
-              if (n['reminderAt'] != null)
-                '🔔 ${DateFormat('dd/MM/yy hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(n['reminderAt'] as int))}',
-            ].join(' • ')),
+            subtitle: Text(
+              [
+                if (a > 0)
+                  '৳${a.toStringAsFixed(0)}'
+                else
+                  tr('সাধারণ নোট', 'General note'),
+                if (n['reminderAt'] != null)
+                  '🔔 ${DateFormat('dd/MM/yy hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(n['reminderAt'] as int))}',
+              ].join(' • '),
+            ),
             trailing: IconButton(
               icon: const Icon(
                 Icons.delete_outline,
                 color: Colors.redAccent,
               ),
-              onPressed: () {
-                confirmDelete(
-                  n['title'] as String,
-                  () async {
-                    try {
-                      // প্রথমে নোটিফিকেশন ক্যানসেল করুন
-                      await notifications.cancel(noteId);
-                    } catch (_) {}
-                    
-                    // এরপর ডাটাবেস থেকে ডিলিট করে রেকর্ড রিলোড করুন
-                    await deleteRow('notes', noteId);
-                  },
-                );
-              },
+              onPressed: () => confirmDelete(
+                n['title'] as String,
+                () async {
+                  await notifications.cancel(n['id'] as int);
+                  await deleteRow('notes', n['id'] as int);
+                },
+              ),
             ),
           ),
         );
       }).toList(),
     );
   }
+
+  // ====================================================
+  // SETTINGS
+  // ====================================================
 
   Future<void> settings() async {
     await showModalBottomSheet(
@@ -1417,7 +1620,8 @@ if (reminder != null) {
                           child: Text(tr('বাতিল', 'Cancel')),
                         ),
                         FilledButton(
-                          onPressed: () => Navigator.pop(ctx, c.text.trim()),
+                          onPressed: () =>
+                              Navigator.pop(ctx, c.text.trim()),
                           child: Text(tr('সেভ', 'Save')),
                         ),
                       ],
@@ -1429,14 +1633,12 @@ if (reminder != null) {
                   if (value != null) widget.onName(value);
                 },
               ),
-
               SwitchListTile(
                 secondary: const Icon(Icons.dark_mode_outlined),
                 title: Text(tr('ডার্ক মোড', 'Dark Mode')),
                 value: widget.dark,
                 onChanged: widget.onDark,
               ),
-
               ListTile(
                 leading: const Icon(Icons.language),
                 title: Text(tr('ভাষা', 'Language')),
@@ -1458,9 +1660,10 @@ if (reminder != null) {
                   },
                 ),
               ),
-
               ListTile(
-                leading: const Icon(Icons.account_balance_wallet_outlined),
+                leading: const Icon(
+                  Icons.account_balance_wallet_outlined,
+                ),
                 title: Text(tr('মাসিক বাজেট', 'Monthly budget')),
                 subtitle: Text('৳${widget.budget.toStringAsFixed(0)}'),
                 onTap: () {
@@ -1468,9 +1671,7 @@ if (reminder != null) {
                   setBudgetDialog();
                 },
               ),
-
               const SizedBox(height: 8),
-
               Text(
                 'Smart Hishab • Version 1.0.0',
                 style: TextStyle(
@@ -1483,6 +1684,10 @@ if (reminder != null) {
       ),
     );
   }
+
+  // ====================================================
+  // MAIN SCREEN BUILD
+  // ====================================================
 
   @override
   Widget build(BuildContext context) {
@@ -1519,9 +1724,7 @@ if (reminder != null) {
                 ),
               ),
             ),
-
             const SizedBox(width: 9),
-
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1536,7 +1739,10 @@ if (reminder != null) {
                     ),
                   ),
                   Text(
-                    tr('আপনার দৈনিক হিসাব', 'Your daily finance tracker'),
+                    tr(
+                      'আপনার দৈনিক হিসাব',
+                      'Your daily finance tracker',
+                    ),
                     style: TextStyle(
                       fontSize: 11,
                       color: Theme.of(context).hintColor,
@@ -1554,7 +1760,6 @@ if (reminder != null) {
           ),
         ],
       ),
-
       body: IndexedStack(
         index: tab,
         children: [
@@ -1563,7 +1768,6 @@ if (reminder != null) {
           notesPage(),
         ],
       ),
-
       floatingActionButton: FloatingActionButton.extended(
         onPressed: tab == 2 ? addNote : addExpense,
         icon: const Icon(Icons.add),
@@ -1573,7 +1777,6 @@ if (reminder != null) {
               : tr('খরচ যোগ করুন', 'Add Expense'),
         ),
       ),
-
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
         onDestinationSelected: (v) => setState(() => tab = v),
