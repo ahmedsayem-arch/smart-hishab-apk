@@ -11,18 +11,39 @@ final FlutterLocalNotificationsPlugin notifications = FlutterLocalNotificationsP
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
   tzdata.initializeTimeZones();
-  // Bangladesh uses UTC+6 and currently has no daylight-saving changes.
   tz.setLocalLocation(tz.getLocation('Asia/Dhaka'));
+
   const android = AndroidInitializationSettings('@mipmap/ic_launcher');
   const ios = DarwinInitializationSettings();
-  await notifications.initialize(const InitializationSettings(android: android, iOS: ios));
-  await notifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()?.requestNotificationsPermission();
-  await notifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()?.createNotificationChannel(
-    const AndroidNotificationChannel('smart_hishab_reminders_v2', 'Smart Hishab Reminders', description: 'Expense and note reminders', importance: Importance.max, playSound: true),
+
+  await notifications.initialize(
+    const InitializationSettings(android: android, iOS: ios),
   );
+
+  // অ্যান্ড্রয়েড ১২+ এর জন্য এক্সাক্ট অ্যালার্ম এবং নোটিফিকেশন পারমিশন রিকোয়েস্ট
+  final androidImpl = notifications.resolvePlatformSpecificImplementation<
+      AndroidFlutterLocalNotificationsPlugin>();
+      
+  await androidImpl?.requestNotificationsPermission();
+  await androidImpl?.requestExactAlarmsPermission(); // এই লাইনটি যোগ করুন
+
+  await notifications
+      .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>()
+      ?.createNotificationChannel(
+        const AndroidNotificationChannel(
+          'smart_hishab_reminders',
+          'Smart Hishab Reminders',
+          description: 'Expense and note reminders',
+          importance: Importance.high,
+        ),
+      );
+
   runApp(const SmartHishabApp());
 }
+
 
 Future<bool> scheduleNoteReminder(int id, String title, DateTime when) async {
   if (!when.isAfter(DateTime.now())) return false;
