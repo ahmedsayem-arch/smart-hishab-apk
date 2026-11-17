@@ -303,7 +303,6 @@ class _HomePageState extends State<HomePage> {
           }else{
              toast(tr('নোট সেভ হয়েছে, তবে রিমাইন্ডার সেট করা যায়নি', 'Note saved, but reminder could not be set',));
           }
-          }
         },child:Text(tr('সেভ করুন','Save')))),
       ])),
     )));
