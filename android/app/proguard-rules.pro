@@ -7,6 +7,7 @@
 -keep class io.flutter.view.** { *; }
 -keep class io.flutter.** { *; }
 -keep class io.flutter.embedding.** { *; }
+-dontwarn com.google.android.play.core.**
 
 # ==========================================
 # 2. flutter_local_notifications & Gson (Fixes Missing type parameter)
@@ -24,6 +25,8 @@
 -keepattributes Signature
 -keepattributes InnerClasses
 -keepattributes EnclosingMethod
+-dontwarn sun.misc.Unsafe
+-dontwarn javax.annotation.**
 
 # ==========================================
 # 3. sqflite (SQLite Database) Rules
