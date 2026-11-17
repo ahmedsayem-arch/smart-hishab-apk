@@ -8,7 +8,6 @@ import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
 final FlutterLocalNotificationsPlugin notifications = FlutterLocalNotificationsPlugin();
-String reminderError = '';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,9 +30,6 @@ Future<bool> scheduleNoteReminder(int id, String title, DateTime when) async {
   try {
     final androidImpl = notifications.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
-
-    // Android 13+ notification permission
-    await androidImpl?.requestNotificationsPermission();
 
     // Android 12+ exact alarm permission. If not granted, use inexact mode.
     final exactAllowed =
@@ -63,15 +59,12 @@ Future<bool> scheduleNoteReminder(int id, String title, DateTime when) async {
           UILocalNotificationDateInterpretation.absoluteTime,
     );
 
-    debugPrint('Reminder scheduled: $id');
     return true;
-  } catch (e, stack) {
-    reminderError = e.toString();
-    debugPrint('Reminder schedule error: $e');
-    debugPrintStack(stackTrace: stack);
+  } catch (_) {
     return false;
   }
 }
+
 
 class DB {
   static Database? _db;
@@ -308,7 +301,8 @@ class _HomePageState extends State<HomePage> {
           }else if(reminderSet){
             toast(tr('নোট ও রিমাইন্ডার সেভ হয়েছে','Note and reminder saved'));
           }else{
-            toast('রিমাইন্ডার Error: $reminderError');
+             toast(tr('নোট সেভ হয়েছে, তবে রিমাইন্ডার সেট করা যায়নি', 'Note saved, but reminder could not be set',));
+          }
           }
         },child:Text(tr('সেভ করুন','Save')))),
       ])),
