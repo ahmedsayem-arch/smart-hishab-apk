@@ -1427,7 +1427,7 @@ class _HomePageState extends State<HomePage> {
             ),
           )
         else
-          ...filtered.map(_buildExpenseCard),
+          ...filtered.map((e) => _buildExpenseCard(e)),
       ],
     );
   }
@@ -1613,7 +1613,7 @@ class _HomePageState extends State<HomePage> {
             child: Center(child: Text(tr('এই তারিখে কোনো খরচ লেখা হয়নি', 'No expenses on this date'))),
           )
         else
-          ...dayExps.map(_buildExpenseCard),
+          ...dayExps.map((e) => _buildExpenseCard(e)),
       ],
     );
   }
