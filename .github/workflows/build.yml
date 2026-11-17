@@ -29,8 +29,9 @@ jobs:
           flutter create build_proj --project-name smart_hishab --platforms android
           cp pubspec.yaml build_proj/pubspec.yaml
           cp main.dart build_proj/lib/main.dart
+          cp android/app/proguard-rules.pro build_proj/android/app/proguard-rules.pro
           python3 -m pip install --quiet pillow || true
-          curl -sL -o icon_src.png https://raw.githubusercontent.com/ahmedsayem-arch/smart-hishab/main/icon-512.png || true
+          curl -sL -o icon_src.png https://raw.githubusercontent.com/ahmedsayem-arch/smart-hishab-apk/main/icon-512.png || true
           python3 - << 'EOF'
           import os
           manifest_path = "build_proj/android/app/src/main/AndroidManifest.xml"
@@ -42,6 +43,8 @@ jobs:
               <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
               <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
               <uses-permission android:name="android.permission.VIBRATE"/>
+              <uses-permission android:name="android.permission.WAKE_LOCK"/>
+              <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
           """
           manifest = manifest.replace("<application", perms + "    <application", 1)
           manifest = manifest.replace('android:label="smart_hishab"', 'android:label="Smart Hishab"')
@@ -73,6 +76,11 @@ jobs:
           gradle = gradle.replace(
               "defaultConfig {",
               "defaultConfig {\n        multiDexEnabled true",
+              1
+          )
+          gradle = gradle.replace(
+              "release {",
+              "release {\n            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'",
               1
           )
           gradle += "\ndependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'\n}\n"
