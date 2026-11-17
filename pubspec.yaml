@@ -1,19 +1,113 @@
-name: smart_hishab
-description: Daily Expense, Calendar and Reminder App
-publish_to: 'none'
-version: 1.0.0+1
+name: Build Smart Hishab APK
 
-environment:
-  sdk: '>=3.4.0 <4.0.0'
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
 
-dependencies:
-  flutter:
-    sdk: flutter
-  sqflite: ^2.3.3
-  path: ^1.9.0
-  intl: ^0.19.0
-  flutter_local_notifications: ^17.2.3
-  timezone: ^0.9.4
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-flutter:
-  uses-material-design: true
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: 'stable'
+
+      - name: Prepare Project and Icon
+        run: |
+          flutter create build_proj --project-name smart_hishab --platforms android
+          cp pubspec.yaml build_proj/pubspec.yaml
+          cp main.dart build_proj/lib/main.dart
+          python3 -m pip install --quiet pillow || true
+          curl -sL -o icon_src.png https://raw.githubusercontent.com/ahmedsayem-arch/smart-hishab-apk/main/icon-512.png || true
+          python3 - << 'EOF'
+          import os
+          manifest_path = "build_proj/android/app/src/main/AndroidManifest.xml"
+          with open(manifest_path, "r") as f:
+              manifest = f.read()
+
+          perms = """    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+              <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+              <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
+              <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+              <uses-permission android:name="android.permission.VIBRATE"/>
+              <uses-permission android:name="android.permission.WAKE_LOCK"/>
+              <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+          """
+          manifest = manifest.replace("<application", perms + "    <application", 1)
+          manifest = manifest.replace('android:label="smart_hishab"', 'android:label="Smart Hishab"')
+
+          receivers = """        <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />
+                  <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+                      <intent-filter>
+                          <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                          <action android:name="android.intent.action.MY_PACKAGE_DATA_CHANGE"/>
+                          <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                          <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+                      </intent-filter>
+                  </receiver>
+              </application>"""
+          manifest = manifest.replace("</application>", receivers, 1)
+
+          with open(manifest_path, "w") as f:
+              f.write(manifest)
+
+          gradle_path = "build_proj/android/app/build.gradle"
+          with open(gradle_path, "r") as f:
+              gradle = f.read()
+
+          gradle = gradle.replace(
+              "compileOptions {",
+              "compileOptions {\n        coreLibraryDesugaringEnabled true",
+              1
+          )
+          gradle = gradle.replace(
+              "defaultConfig {",
+              "defaultConfig {\n        multiDexEnabled true",
+              1
+          )
+          gradle += "\ndependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'\n}\n"
+
+          with open(gradle_path, "w") as f:
+              f.write(gradle)
+
+          try:
+              from PIL import Image
+              if os.path.exists("icon_src.png") and os.path.getsize("icon_src.png") > 100:
+                  img = Image.open("icon_src.png").convert("RGBA")
+                  sizes = {
+                      "mipmap-mdpi": 48,
+                      "mipmap-hdpi": 72,
+                      "mipmap-xhdpi": 96,
+                      "mipmap-xxhdpi": 144,
+                      "mipmap-xxxhdpi": 192,
+                  }
+                  for folder, sz in sizes.items():
+                      out = f"build_proj/android/app/src/main/res/{folder}/ic_launcher.png"
+                      img.resize((sz, sz), Image.LANCZOS).save(out)
+          except Exception as e:
+              print("Icon skip:", e)
+          EOF
+
+      - name: Build APK
+        run: |
+          cd build_proj
+          flutter pub get
+          flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartHishab-APK
+          path: build_proj/build/app/outputs/flutter-apk/app-release.apk
