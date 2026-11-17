@@ -9,9 +9,13 @@
 -keep class io.flutter.embedding.** { *; }
 
 # ==========================================
-# 2. flutter_local_notifications & Scheduled Alarms
+# 2. flutter_local_notifications & Gson (Fixes Missing type parameter)
 # ==========================================
 -keep class com.dexterous.** { *; }
+-keepclassmembers class com.dexterous.** { *; }
+-keep class com.google.gson.** { *; }
+-keep class * extends com.google.gson.reflect.TypeToken { *; }
+-keepclassmembers class * extends com.google.gson.reflect.TypeToken { *; }
 -keepclassmembers class * {
     @androidx.annotation.Keep <fields>;
     @androidx.annotation.Keep <methods>;
@@ -19,6 +23,7 @@
 -keepattributes *Annotation*
 -keepattributes Signature
 -keepattributes InnerClasses
+-keepattributes EnclosingMethod
 
 # ==========================================
 # 3. sqflite (SQLite Database) Rules
