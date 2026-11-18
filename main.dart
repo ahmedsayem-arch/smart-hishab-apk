@@ -1299,22 +1299,7 @@ class _HomePageState extends State<HomePage> {
                   setBudgetDialog();
                 },
               ),
-              ListTile(
-                leading: const Icon(Icons.alarm_on_outlined),
-                title: Text(
-                    tr('টেস্ট অ্যালার্ম (৫ সেকেন্ড)', 'Test Alarm (5 sec)')),
-                onTap: () async {
-                  Navigator.pop(sheet);
-                  final err = await scheduleNoteReminder(
-                    999999,
-                    'টেস্ট অ্যালার্ম ঠিকভাবে কাজ করছে!',
-                    DateTime.now().add(const Duration(seconds: 5)),
-                  );
-                  toast(err ??
-                      tr('৫ সেকেন্ড পর অ্যালার্ম বাজবে',
-                          'Alarm will ring in 5 seconds'));
-                },
-              ),
+              
               const SizedBox(height: 8),
               Text('Smart Hishab • Version 1.0.0',
                   style: TextStyle(color: Theme.of(context).hintColor)),
